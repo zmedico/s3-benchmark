@@ -244,10 +244,14 @@ func runDownload(thread_num int) {
 		setSignature(req)
 		if resp, err := httpClient.Do(req); err != nil {
 			log.Fatalf("FATAL: Error downloading object %s: %v", prefix, err)
-		} else if resp != nil && resp.Body != nil {
+		} else {
 			if resp.StatusCode == http.StatusServiceUnavailable {
 				atomic.AddInt32(&download_slowdown_count, 1)
 				atomic.AddInt32(&download_count, -1)
+			} else if resp.StatusCode != http.StatusOK {
+				log.Fatalf("FATAL: Error downloading object %s: %s", prefix, resp.Status)
+			} else if resp.Body == nil {
+				log.Fatalf("FATAL: Error downloading object %s: Body == nil", prefix)
 			} else {
 				io.Copy(ioutil.Discard, resp.Body)
 			}
