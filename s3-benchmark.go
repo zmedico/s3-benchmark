@@ -40,6 +40,9 @@ var object_data []byte
 var object_data_md5 string
 var running_threads, upload_count, download_count, delete_count, upload_slowdown_count, download_slowdown_count, delete_slowdown_count int32
 var endtime, upload_finish, download_finish, delete_finish time.Time
+var upload_failures = map[int32]bool{}
+var upload_failures_lock = sync.Mutex{}
+var successful_uploads []int32
 
 func logit(msg string) {
 	fmt.Println(msg)
@@ -215,18 +218,25 @@ func runUpload(thread_num int) {
 		req.Header.Set("Content-MD5", object_data_md5)
 		setSignature(req)
 		if resp, err := httpClient.Do(req); err != nil {
-			log.Fatalf("FATAL: Error uploading object %s: %v", prefix, err)
+			atomic.AddInt32(&upload_slowdown_count, 1)
+			upload_failures_lock.Lock()
+			upload_failures[objnum] = true
+			upload_failures_lock.Unlock()
+			//log.Fatalf("FATAL: Error uploading object %s: %v", prefix, err)
+			fmt.Printf("Error uploading object %s: %v\n", prefix, err)
 		} else if resp != nil && resp.StatusCode != http.StatusOK {
-			if resp.StatusCode == http.StatusServiceUnavailable {
+			//if resp.StatusCode == http.StatusServiceUnavailable {
 				atomic.AddInt32(&upload_slowdown_count, 1)
-				atomic.AddInt32(&upload_count, -1)
-			} else {
+				upload_failures_lock.Lock()
+				upload_failures[objnum] = true
+				upload_failures_lock.Unlock()
+			//} else {
 				fmt.Printf("Upload status %s: resp: %+v\n", resp.Status, resp)
 				if resp.Body != nil {
 					body, _ := ioutil.ReadAll(resp.Body)
 					fmt.Printf("Body: %s\n", string(body))
 				}
-			}
+			//}
 		}
 	}
 	// Remember last done time
@@ -238,7 +248,7 @@ func runUpload(thread_num int) {
 func runDownload(thread_num int) {
 	for time.Now().Before(endtime) {
 		atomic.AddInt32(&download_count, 1)
-		objnum := rand.Int31n(upload_count) + 1
+		objnum := successful_uploads[rand.Int31n((int32)(len(successful_uploads)))]
 		prefix := fmt.Sprintf("%s/%s/Object-%d", url_host, bucket, objnum)
 		req, _ := http.NewRequest("GET", prefix, nil)
 		setSignature(req)
@@ -357,9 +367,20 @@ func main() {
 		}
 		upload_time := upload_finish.Sub(starttime).Seconds()
 
-		bps := float64(uint64(upload_count)*object_size) / upload_time
+		successful_upload_count := upload_count - (int32)(len(upload_failures))
+		successful_uploads = make([]int32, successful_upload_count)
+		var index, objnum int32
+		for objnum = 1; objnum <= upload_count; objnum++ {
+			_, failed := upload_failures[objnum]
+			if !failed {
+				successful_uploads[index] = objnum
+				index++
+			}
+		}
+
+		bps := float64(uint64(successful_upload_count)*object_size) / upload_time
 		logit(fmt.Sprintf("Loop %d: PUT time %.1f secs, objects = %d, speed = %sB/sec, %.1f operations/sec. Slowdowns = %d",
-			loop, upload_time, upload_count, bytefmt.ByteSize(uint64(bps)), float64(upload_count)/upload_time, upload_slowdown_count))
+			loop, upload_time, successful_upload_count, bytefmt.ByteSize(uint64(bps)), float64(successful_upload_count)/upload_time, upload_slowdown_count))
 
 		// Run the download case
 		running_threads = int32(threads)
