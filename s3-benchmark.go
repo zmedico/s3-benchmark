@@ -378,9 +378,9 @@ func main() {
 			}
 		}
 
-		bps := float64(uint64(successful_upload_count)*object_size) / upload_time
-		logit(fmt.Sprintf("Loop %d: PUT time %.1f secs, objects = %d, speed = %sB/sec, %.1f operations/sec. Slowdowns = %d",
-			loop, upload_time, successful_upload_count, bytefmt.ByteSize(uint64(bps)), float64(successful_upload_count)/upload_time, upload_slowdown_count))
+		gbps := float64(uint64(successful_upload_count)*object_size) / upload_time * 8 / 1000000000
+		logit(fmt.Sprintf("Loop %d: PUT time %.1f secs, objects = %d, speed = %.3f gbps, %.1f operations/sec. Slowdowns = %d",
+			loop, upload_time, successful_upload_count, gbps, float64(successful_upload_count)/upload_time, upload_slowdown_count))
 
 		// Run the download case
 		running_threads = int32(threads)
@@ -396,9 +396,9 @@ func main() {
 		}
 		download_time := download_finish.Sub(starttime).Seconds()
 
-		bps = float64(uint64(download_count)*object_size) / download_time
-		logit(fmt.Sprintf("Loop %d: GET time %.1f secs, objects = %d, speed = %sB/sec, %.1f operations/sec. Slowdowns = %d",
-			loop, download_time, download_count, bytefmt.ByteSize(uint64(bps)), float64(download_count)/download_time, download_slowdown_count))
+		gbps = float64(uint64(download_count)*object_size) / download_time * 8 / 1000000000
+		logit(fmt.Sprintf("Loop %d: GET time %.1f secs, objects = %d, speed = %.3f gbps, %.1f operations/sec. Slowdowns = %d",
+			loop, download_time, download_count, gbps, float64(download_count)/download_time, download_slowdown_count))
 
 		// Run the delete case
 		running_threads = int32(threads)
