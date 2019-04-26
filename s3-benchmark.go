@@ -223,18 +223,26 @@ func runUpload(thread_num int) {
 			upload_failures[objnum] = true
 			upload_failures_lock.Unlock()
 			//log.Fatalf("FATAL: Error uploading object %s: %v", prefix, err)
-			fmt.Printf("Error uploading object %s: %v\n", prefix, err)
-		} else if resp != nil && resp.StatusCode != http.StatusOK {
+			log.Printf("Error uploading object %s: %v\n", prefix, err)
+		} else if resp != nil {
+			if resp.StatusCode != http.StatusOK {
 			//if resp.StatusCode == http.StatusServiceUnavailable {
 				atomic.AddInt32(&upload_slowdown_count, 1)
 				upload_failures_lock.Lock()
 				upload_failures[objnum] = true
 				upload_failures_lock.Unlock()
+				log.Printf("Upload status %s: resp: %+v\n", resp.Status, resp)
+			}
 			//} else {
-				fmt.Printf("Upload status %s: resp: %+v\n", resp.Status, resp)
 				if resp.Body != nil {
-					body, _ := ioutil.ReadAll(resp.Body)
-					fmt.Printf("Body: %s\n", string(body))
+					if resp.StatusCode == http.StatusOK {
+						io.Copy(ioutil.Discard, resp.Body)
+					} else {
+						body, _ := ioutil.ReadAll(resp.Body)
+						if len(body) > 0 {
+							log.Printf("Body: %s\n", string(body))
+						}
+					}
 				}
 			//}
 		}
@@ -253,16 +261,22 @@ func runDownload(thread_num int) {
 		req, _ := http.NewRequest("GET", prefix, nil)
 		setSignature(req)
 		if resp, err := httpClient.Do(req); err != nil {
-			log.Fatalf("FATAL: Error downloading object %s: %v", prefix, err)
+			//log.Fatalf("FATAL: Error downloading object %s: %v", prefix, err)
+			log.Printf("Error downloading object %s: %v\n", prefix, err)
+			atomic.AddInt32(&download_slowdown_count, 1)
+			atomic.AddInt32(&download_count, -1)
 		} else {
-			if resp.StatusCode == http.StatusServiceUnavailable {
+			//if resp.StatusCode == http.StatusServiceUnavailable {
+			if resp.StatusCode != http.StatusOK {
 				atomic.AddInt32(&download_slowdown_count, 1)
 				atomic.AddInt32(&download_count, -1)
-			} else if resp.StatusCode != http.StatusOK {
-				log.Fatalf("FATAL: Error downloading object %s: %s", prefix, resp.Status)
-			} else if resp.Body == nil {
-				log.Fatalf("FATAL: Error downloading object %s: Body == nil", prefix)
-			} else {
+				log.Printf("Download status %s: resp: %+v\n", resp.Status, resp)
+			}
+			//} else if resp.StatusCode != http.StatusOK {
+			//	log.Fatalf("FATAL: Error downloading object %s: %s", prefix, resp.Status)
+			//} else if resp.Body == nil {
+			//	log.Fatalf("FATAL: Error downloading object %s: Body == nil", prefix)
+			if resp.Body != nil {
 				io.Copy(ioutil.Discard, resp.Body)
 			}
 		}
@@ -283,10 +297,16 @@ func runDelete(thread_num int) {
 		req, _ := http.NewRequest("DELETE", prefix, nil)
 		setSignature(req)
 		if resp, err := httpClient.Do(req); err != nil {
-			log.Fatalf("FATAL: Error deleting object %s: %v", prefix, err)
-		} else if resp != nil && resp.StatusCode == http.StatusServiceUnavailable {
+			//log.Fatalf("FATAL: Error deleting object %s: %v", prefix, err)
+			log.Printf("Error deleting object %s: %v", prefix, err)
 			atomic.AddInt32(&delete_slowdown_count, 1)
 			atomic.AddInt32(&delete_count, -1)
+		} else {
+			if resp.StatusCode != http.StatusNoContent {
+				atomic.AddInt32(&delete_slowdown_count, 1)
+				atomic.AddInt32(&delete_count, -1)
+				log.Printf("Delete status %s: resp: %+v\n", resp.Status, resp)
+			}
 		}
 	}
 	// Remember last done time
